@@ -12,6 +12,7 @@ from textual.widgets import Static
 from .parser import (
     SessionData,
     StatsCache,
+    _tz,
     fmt_ago,
     fmt_duration,
     fmt_tokens,
@@ -78,12 +79,11 @@ def _hl(dark: bool) -> dict:
 _COLOR_MAP = {"peach": "peach", "yellow": "yellow", "red": "red", "overlay0": "muted"}
 
 
-def _tz(dt: datetime) -> datetime:
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-
 def _detect_system_dark() -> bool:
-    """Detect macOS dark mode; fallback to True (dark) on error."""
+    """Detect macOS dark mode; fallback to True (dark) on error or non-macOS."""
+    import sys
+    if sys.platform != "darwin":
+        return True  # assume dark on non-macOS
     try:
         result = subprocess.run(
             ["defaults", "read", "-g", "AppleInterfaceStyle"],
@@ -341,7 +341,7 @@ def _max_concurrent(today_sessions: list[SessionData]) -> int:
             events.append((_tz(s.start_time), +1))
             events.append((_tz(s.last_activity), -1))
     if not events:
-        return min(1, len(today_sessions))
+        return 0
     events.sort(key=lambda x: (x[0], x[1]))
     cur = peak = 0
     for _, delta in events:
@@ -724,7 +724,6 @@ def _footer(dark: bool, rest_muted: bool, work_muted: bool) -> str:
 def _topbar(
     sessions: list[SessionData],
     focus: FocusStatus,
-    stats: StatsCache,
     dark: bool,
     rest_muted: bool = True,
     work_muted: bool = True,
@@ -966,12 +965,21 @@ class ClaudoroApp(App):
     # ── sound ─────────────────────────────────────────────────────────────────
 
     def _play_sound(self) -> None:
+        import sys
         try:
-            subprocess.Popen(
-                ["afplay", "/System/Library/Sounds/Glass.aiff"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            if sys.platform == "darwin":
+                subprocess.Popen(
+                    ["afplay", "/System/Library/Sounds/Glass.aiff"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            else:
+                # Linux: try paplay then aplay
+                for cmd in [["paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga"],
+                            ["aplay", "/usr/share/sounds/alsa/Front_Center.wav"]]:
+                    result = subprocess.run(["which", cmd[0]], capture_output=True)
+                    if result.returncode == 0:
+                        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        break
         except Exception:
             pass
 
@@ -1037,7 +1045,7 @@ class ClaudoroApp(App):
         dark = self._dark_mode
 
         self.query_one("#topbar", Static).update(
-            _topbar(self._sessions, self._focus, self._stats, dark,
+            _topbar(self._sessions, self._focus, dark,
                     self._rest_alarm_muted, self._work_alarm_muted)
         )
         self.query_one("#sessions-panel", SessionsPanel).refresh_sessions(self._sessions)

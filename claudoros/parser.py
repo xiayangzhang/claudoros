@@ -74,7 +74,7 @@ class SessionData:
     user_input_chars: int = 0   # total chars the human actually typed
 
     # All user message timestamps (for accurate focus/break analysis)
-    user_msg_timestamps: list = dc_field(default_factory=list)
+    user_msg_timestamps: list[datetime] = dc_field(default_factory=list)
 
     # Response time: how long user takes to reply after Claude finishes
     total_response_secs: float = 0.0
@@ -165,7 +165,7 @@ def _is_human_text(content) -> Optional[str]:
         for c in content:
             if isinstance(c, dict) and c.get("type") == "text":
                 t = c.get("text", "").strip()
-                if t and not t.startswith("<") and not t.startswith("["):
+                if t:
                     return t
     return None
 
@@ -274,6 +274,11 @@ def parse_session(jsonl_path: Path) -> Optional[SessionData]:
             # track last assistant ts for response-time measurement
             if ts:
                 _last_assistant_ts = ts
+
+    # After the main parsing loop, use cwd if available (more accurate than decoded dir name)
+    if s.cwd:
+        s.project_path = s.cwd
+        s.project_name = project_name_from_path(s.cwd)
 
     return s
 
