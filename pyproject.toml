@@ -1,0 +1,35 @@
+[project]
+name = "claudoros"
+version = "0.1.0"
+description = "Passive focus tracker and live session monitor for Claude Code"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Xiayang Zhang" }]
+requires-python = ">=3.11"
+keywords = ["claude", "claude-code", "tui", "pomodoro", "productivity", "terminal"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Terminals",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "textual>=8.1.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/xiayangzhang/claudoros"
+Repository = "https://github.com/xiayangzhang/claudoros"
+Issues = "https://github.com/xiayangzhang/claudoros/issues"
+
+[project.scripts]
+claudoros = "claudoros.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
