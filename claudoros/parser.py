@@ -165,7 +165,9 @@ def _is_human_text(content) -> Optional[str]:
         for c in content:
             if isinstance(c, dict) and c.get("type") == "text":
                 t = c.get("text", "").strip()
-                if t:
+                # Skip system-injected context blocks (e.g. <environment_details>)
+                # but allow user text starting with "[" (e.g. "[WIP] my idea")
+                if t and not t.startswith("<"):
                     return t
     return None
 
