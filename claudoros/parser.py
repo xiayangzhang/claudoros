@@ -76,6 +76,9 @@ class SessionData:
     # All user message timestamps (for accurate focus/break analysis)
     user_msg_timestamps: list[datetime] = dc_field(default_factory=list)
 
+    # All assistant message timestamps (for timeline density)
+    assistant_msg_timestamps: list[datetime] = dc_field(default_factory=list)
+
     # Response time: how long user takes to reply after Claude finishes
     total_response_secs: float = 0.0
     response_count: int = 0
@@ -273,8 +276,8 @@ def parse_session(jsonl_path: Path) -> Optional[SessionData]:
                 s.last_assistant_text = text
                 s.last_assistant_text_ts = ts
 
-            # track last assistant ts for response-time measurement
             if ts:
+                s.assistant_msg_timestamps.append(ts)
                 _last_assistant_ts = ts
 
     # After the main parsing loop, use cwd if available (more accurate than decoded dir name)

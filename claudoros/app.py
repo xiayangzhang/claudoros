@@ -415,7 +415,7 @@ class SessionsPanel(ScrollableContainer):
         recent  = [s for s in sessions if s.is_recent and not s.is_live]
         earlier = [s for s in sessions if _is_today(s, today_date) and not s.is_recent]
 
-        parts: list[str] = []
+        parts: list[str] = [_timeline_heatmap(sessions, dark), ""]
 
         if live:
             parts.append(f"  [{c['header']}]live[/]  [{c['green']}]{len(live)}[/]")
@@ -428,13 +428,29 @@ class SessionsPanel(ScrollableContainer):
             parts.append(f"  [{c['header']}]recent[/]  [{c['muted']}]{len(recent)}[/]")
             parts.append("")
             for s in recent:
-                parts.append(_session_card(s, dark))
-                # inject waiting badge for pending replies (session is not live so badge not shown)
+                icon = f"[{c['muted']}]○[/]"
+                name = f"[bold {c['name']}]{s.project_name}[/]"
+                ago  = f"[{c['muted']}]{fmt_ago(s.seconds_since_activity)}[/]"
+                # last message preview
+                u_ts = _tz(s.last_user_text_ts)  if s.last_user_text_ts  else None
+                a_ts = _tz(s.last_assistant_text_ts) if s.last_assistant_text_ts else None
+                preview = ""
+                if u_ts and a_ts:
+                    last_text, last_who = (s.last_user_text, "you") if u_ts >= a_ts else (s.last_assistant_text, "claude")
+                elif u_ts:
+                    last_text, last_who = s.last_user_text, "you"
+                elif a_ts:
+                    last_text, last_who = s.last_assistant_text, "claude"
+                else:
+                    last_text = last_who = None
+                if last_text:
+                    who_col = c["blue"] if last_who == "claude" else c["teal"]
+                    preview = f"  [{who_col}]{last_who}[/]  [{c['muted']}]{truncate(last_text, 28)}[/]"
+                waiting = ""
                 if _has_pending_reply(s):
-                    ago = fmt_ago(s.seconds_since_activity)
-                    badge = f"[bold {c['yellow']}]● waiting for you[/]  [{c['muted']}]{ago}[/]"
-                    parts[-1] = parts[-1] + f"\n     {badge}"
-                parts.append("")
+                    waiting = f"  [{c['yellow']}]●[/]"
+                parts.append(f"  {icon}  {name}  {ago}{preview}{waiting}")
+            parts.append("")
 
         if earlier:
             parts.append(f"  [{c['header']}]earlier today[/]  [{c['dim']}]{len(earlier)}[/]")
@@ -699,9 +715,6 @@ def _is_today(s: SessionData, today_date) -> bool:
     return ref.astimezone().date() == today_date
 
 
-def _today_msgs(sessions: list[SessionData], today_date) -> int:
-    return sum(s.user_message_count for s in sessions if _is_today(s, today_date))
-
 
 def _footer(dark: bool, rest_muted: bool, work_muted: bool) -> str:
     c = _hl(dark)
@@ -749,8 +762,11 @@ def _topbar(
     parts.append(f"[{c['dim']}]│[/]")
 
     today_date = datetime.now(timezone.utc).date()
-    t_msgs = _today_msgs(sessions, today_date)
-    parts.append(f"[{c['muted']}]{t_msgs} msgs today[/]")
+    today = [s for s in sessions if _is_today(s, today_date)]
+    u_msgs = sum(s.user_message_count    for s in today)
+    a_msgs = sum(s.assistant_message_count for s in today)
+    breakdown = f" [{c['dim']}]({u_msgs} you · {a_msgs} cld)[/]" if (u_msgs or a_msgs) else ""
+    parts.append(f"[{c['muted']}]{u_msgs + a_msgs} msgs today[/]{breakdown}")
 
     parts.append(f"[{c['dim']}]│[/]")
 
@@ -880,6 +896,84 @@ def _banner(
 
     idx = datetime.now().minute % len(variants)
     return variants[idx]
+
+
+# ── Timeline shared helpers ───────────────────────────────────────────────────
+
+_TIMELINE_SLOTS = 24   # hourly buckets
+_SLOT_W         = 2    # display chars per slot  →  24 × 2 = 48 chars wide
+
+
+def _bucket_today(sessions: list[SessionData], attr: str) -> list[int]:
+    local_today = datetime.now().date()
+    counts = [0] * _TIMELINE_SLOTS
+    for s in sessions:
+        for ts in getattr(s, attr):
+            lt = _tz(ts).astimezone()
+            if lt.date() == local_today:
+                counts[lt.hour] += 1
+    return counts
+
+
+def _slot_levels(counts: list[int], n: int) -> list[int]:
+    mx = max(counts) or 1
+    return [0 if c == 0 else max(1, (c * n + mx - 1) // mx) for c in counts]
+
+
+def _timeline_axis() -> str:
+    """48-char axis with hour labels; · marks current hour."""
+    W = _TIMELINE_SLOTS * _SLOT_W
+    axis = [" "] * W
+    for hour, label in [(0, "0"), (6, "6"), (12, "12"), (18, "18")]:
+        pos = hour * _SLOT_W
+        for k, ch in enumerate(label):
+            if pos + k < W:
+                axis[pos + k] = ch
+    now_pos = datetime.now().hour * _SLOT_W
+    if 0 <= now_pos < W and axis[now_pos] == " ":
+        axis[now_pos] = "·"
+    return "".join(axis) + " 24"
+
+
+def _colorize_run(text: str, filled_chars: set, fill_col: str, dim_col: str) -> str:
+    out, i = [], 0
+    while i < len(text):
+        ch = text[i]
+        col = fill_col if ch in filled_chars else dim_col
+        j = i + 1
+        while j < len(text) and text[j] == ch:
+            j += 1
+        out.append(f"[{col}]{text[i:j]}[/]")
+        i = j
+    return "".join(out)
+
+
+# ── Heatmap timeline ──────────────────────────────────────────────────────────
+
+def _timeline_heatmap(sessions: list[SessionData], dark: bool) -> str:
+    """3 rows: axis + you + cld, block chars encode density."""
+    c   = _hl(dark)
+    N   = 4
+    CHS = ["░", "▒", "▓", "█"]   # density chars, low → high
+
+    ul = _slot_levels(_bucket_today(sessions, "user_msg_timestamps"),  N)
+    cl = _slot_levels(_bucket_today(sessions, "assistant_msg_timestamps"), N)
+
+    def render(levels: list[int], fill_col: str) -> str:
+        flat = "".join(CHS[min(lv, N - 1)] * _SLOT_W for lv in levels)
+        return _colorize_run(flat, {"▒", "▓", "█"}, fill_col, c["dim"])
+
+    LW, pad = 6, "  "
+    def lbl(text: str, col: str) -> str:
+        return f"[{col}]{text}[/]" + " " * (LW - len(text))
+
+    return "\n".join([
+        f"{pad}{' ' * LW}[{c['dim']}]{_timeline_axis()}[/]",
+        f"{pad}{lbl('you', c['teal'])}{render(ul, c['teal'])}",
+        f"{pad}{lbl('cld', c['blue'])}{render(cl, c['blue'])}",
+    ])
+
+
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
