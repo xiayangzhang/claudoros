@@ -111,8 +111,8 @@ def compute_focus(user_timestamps: list[datetime]) -> FocusStatus:
     cur_streak_end = now if idle_secs < BREAK_DETECT_SECS else last_ts
     best_streak = max(best_streak, (cur_streak_end - streak_start).total_seconds())
 
-    # ── longest break (gap ≥ 5 min, < 8 hr — exclude sleep) ──────────────
-    SLEEP_SECS = 8 * 60 * 60
+    # ── longest break (gap ≥ 5 min, < 6 hr — exclude sleep) ──────────────
+    SLEEP_SECS = 6 * 60 * 60
     break_gaps = [g for g in gaps if BREAK_DETECT_SECS <= g < SLEEP_SECS]
     if BREAK_DETECT_SECS <= idle_secs < SLEEP_SECS:
         break_gaps.append(float(idle_secs))

@@ -238,7 +238,7 @@ def parse_session(jsonl_path: Path) -> Optional[SessionData]:
                     u = _tz(ts)
                     a = _tz(_last_assistant_ts)
                     diff = (u - a).total_seconds()
-                    if 2 <= diff <= 1800:   # ignore < 2s (auto) and > 30min (user away)
+                    if 2 <= diff <= 14400:  # ignore < 2s (auto) and > 4h (clearly away)
                         s.total_response_secs += diff
                         s.response_count += 1
                         if diff < s.min_response_secs:

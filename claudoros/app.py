@@ -596,7 +596,6 @@ class SidePanel(Container):
                 lines.append(f"  [{c['dim']}]{t}[/]  {label}")
 
         lines.append("")
-        lines.append(stat("claudoros", str(focus.pomodoros_done)))
         lines.append(stat("sessions", str(len(today_sessions))))
 
         max_conc = _max_concurrent(today_sessions)
@@ -691,11 +690,13 @@ class SidePanel(Container):
 # ── Top bar ───────────────────────────────────────────────────────────────────
 
 def _is_today(s: SessionData, today_date) -> bool:
-    ref = s.start_time or s.last_activity
+    # Use last_activity first — a long-running session that started yesterday UTC
+    # but is active today should still count as today's session.
+    ref = s.last_activity or s.start_time
     if not ref:
         return False
     ref = _tz(ref)
-    return ref.date() == today_date
+    return ref.astimezone().date() == today_date
 
 
 def _today_msgs(sessions: list[SessionData], today_date) -> int:
